@@ -31,6 +31,7 @@ import {
   printReceipt,
   setPrinterConnectionStatus,
   setPrinterConnectionType,
+  resetUsbConnection,
 } from './src/modules/printing/printerService';
 import { formatCurrency } from './src/modules/sales/utils';
 import { useCartStore } from './src/store/useCartStore';
@@ -99,7 +100,7 @@ export default function App() {
       Alert.alert(
         'Impresora desconectada',
         connectionType === 'usb'
-          ? 'No se pudo imprimir. Revisa cable USB/OTG y reintenta.'
+          ? 'No se pudo imprimir por USB. Revisa cable OTG, permisos y que la impresora este encendida.'
           : 'No se pudo imprimir. Revisa Bluetooth y reintenta.',
       );
     }
@@ -146,9 +147,12 @@ export default function App() {
     setPrinterOnline(next);
   };
 
-  const onSelectConnectionType = (nextType: PrinterConnectionType) => {
+  const onSelectConnectionType = async (nextType: PrinterConnectionType) => {
     setPrinterConnectionType(nextType);
     setConnectionType(nextType);
+    if (nextType === 'usb') {
+      await resetUsbConnection();
+    }
   };
 
   const onCreateProduct = () => {
@@ -259,13 +263,13 @@ export default function App() {
         <View style={styles.connectionRow}>
           <Pressable
             style={[styles.connectionBtn, connectionType === 'usb' && styles.connectionBtnActive]}
-            onPress={() => onSelectConnectionType('usb')}
+            onPress={() => void onSelectConnectionType('usb')}
           >
             <Text style={styles.connectionText}>USB</Text>
           </Pressable>
           <Pressable
             style={[styles.connectionBtn, connectionType === 'bluetooth' && styles.connectionBtnActive]}
-            onPress={() => onSelectConnectionType('bluetooth')}
+            onPress={() => void onSelectConnectionType('bluetooth')}
           >
             <Text style={styles.connectionText}>BT</Text>
           </Pressable>
