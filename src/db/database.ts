@@ -113,6 +113,17 @@ export function createProduct(name: string, price: number): Product {
   return { id: productId, name: cleanName, price, active: 1 };
 }
 
+export function updateProduct(productId: string, name: string, price: number) {
+  db.runSync(
+    'UPDATE products SET name = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;',
+    [name.trim(), price, productId],
+  );
+}
+
+export function deleteProduct(productId: string) {
+  db.runSync('DELETE FROM products WHERE id = ?;', [productId]);
+}
+
 export function setProductActive(productId: string, active: 0 | 1) {
   db.runSync('UPDATE products SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;', [
     active,

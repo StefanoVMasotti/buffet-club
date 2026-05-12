@@ -1,7 +1,6 @@
 ﻿import { PrintersDiscovery, DiscoveryFilterOption, Printer, PrinterConstants } from 'react-native-esc-pos-printer';
 
 import { ReceiptData } from '../../types/models';
-import { buildPrintableSummary, formatCurrency } from '../sales/utils';
 
 export type PrinterConnectionType = 'usb' | 'bluetooth';
 
@@ -22,27 +21,16 @@ const printerState: PrinterState = {
 
 let activeUsbPrinter: Printer | null = null;
 let activeUsbTarget: string | null = null;
+let lastDiscoveredUsbPrinters: DiscoveredPrinter[] = [];
 
-function formatTicket(receipt: ReceiptData): string {
-  const date = new Date(receipt.createdAt).toLocaleString('es-AR');
-  const items = receipt.items.map((item) => ({
-    name: item.name,
-    qty: item.qty,
-    unitPrice: Math.round(item.subtotal / item.qty),
-    productId: item.name,
-  }));
-
-  return [
-    'CLUB - BUFFET',
-    `Operacion: ${receipt.saleId}`,
-    `Fecha: ${date}`,
-    `Pago: ${receipt.paymentMethod}`,
-    '----------------',
-    buildPrintableSummary(items, receipt.total),
-    '----------------',
-    `TOTAL ${formatCurrency(receipt.total)}`,
-    'Gracias!',
-  ].join('\n');
+function expandTicketUnits(receipt: ReceiptData): string[] {
+  const units: string[] = [];
+  for (const item of receipt.items) {
+    for (let i = 0; i < item.qty; i += 1) {
+      units.push(item.name);
+    }
+  }
+  return units;
 }
 
 async function discoverUsbPrinters(timeoutMs = 3500): Promise<DiscoveredPrinter[]> {
@@ -84,18 +72,50 @@ async function discoverUsbPrinters(timeoutMs = 3500): Promise<DiscoveredPrinter[
   });
 }
 
+export async function scanUsbPrinters(timeoutMs = 3500): Promise<DiscoveredPrinter[]> {
+  const printers = await discoverUsbPrinters(timeoutMs);
+  lastDiscoveredUsbPrinters = printers;
+  return printers;
+}
+
+export function getLastDiscoveredUsbPrinters(): DiscoveredPrinter[] {
+  return [...lastDiscoveredUsbPrinters];
+}
+
+export function getActiveUsbPrinterTarget(): string | null {
+  return activeUsbTarget;
+}
+
+export async function selectUsbPrinterTarget(target: string): Promise<void> {
+  if (activeUsbTarget === target) {
+    return;
+  }
+  await resetUsbConnection();
+  activeUsbTarget = target;
+}
+
 async function ensureUsbPrinterConnected(): Promise<Printer> {
   if (activeUsbPrinter && activeUsbTarget) {
     return activeUsbPrinter;
   }
 
-  const printers = await discoverUsbPrinters();
+  let targetToUse = activeUsbTarget;
 
-  if (!printers.length) {
-    throw new Error('USB_PRINTER_NOT_FOUND');
+  if (!targetToUse) {
+    const printers = await discoverUsbPrinters();
+    if (!printers.length) {
+      throw new Error('USB_PRINTER_NOT_FOUND');
+    }
+    targetToUse = printers[0].target;
   }
 
-  const selected = printers[0];
+  const selected =
+    lastDiscoveredUsbPrinters.find((p) => p.target === targetToUse) ??
+    { target: targetToUse, deviceName: 'USB Printer' };
+
+  if (!selected?.target) {
+    throw new Error('USB_PRINTER_NOT_FOUND');
+  }
 
   const printer = new Printer({
     target: selected.target,
@@ -113,14 +133,15 @@ async function ensureUsbPrinterConnected(): Promise<Printer> {
 
 async function printViaUsb(receipt: ReceiptData): Promise<void> {
   const printer = await ensureUsbPrinterConnected();
-  const lines = formatTicket(receipt).split('\n');
+  const units = expandTicketUnits(receipt);
 
-  for (const line of lines) {
-    await printer.addText(`${line}\n`);
+  for (const productName of units) {
+    await printer.addTextAlign(PrinterConstants.ALIGN_CENTER);
+    await printer.addTextSize({ width: 2, height: 2 });
+    await printer.addText(`${productName}\n`);
+    await printer.addFeedLine(3);
+    await printer.addCut(PrinterConstants.CUT_FEED);
   }
-
-  await printer.addFeedLine(2);
-  await printer.addCut(PrinterConstants.CUT_FEED);
   await printer.sendData(15000);
 }
 
@@ -155,8 +176,7 @@ export async function printReceipt(
   if (!printerState.connected) {
     throw new Error('PRINTER_OFFLINE');
   }
-
-  const preview = formatTicket(receipt);
+  const preview = expandTicketUnits(receipt).join('\n');
 
   if (printerState.connectionType === 'usb') {
     await printViaUsb(receipt);
